@@ -61,9 +61,11 @@ class ETDXGenerator:
         Returns:
             Scale factor
         """
-        scale_w = self.TARGET_WIDTH / original_width
-        scale_h = self.TARGET_HEIGHT / original_height
-        return min(scale_w, scale_h)
+        # Empirical correction:
+        # Target 86mm / Observed 71.7mm (at ~0.83 scale) ~= 1.2
+        # Target 86mm / Observed 45.8mm (at ~0.64 scale) ~= 1.88 -> 0.64 * 1.88 ~= 1.2
+        # Likely due to Epson using 360 DPI vs our 300 DPI (360/300 = 1.2)
+        return 1.2
     
     def create_photo_object(self, image_path: str, workspace_number: int, 
                            original_size: Tuple[int, int]) -> dict:
