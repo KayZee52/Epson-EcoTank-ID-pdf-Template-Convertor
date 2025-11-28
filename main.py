@@ -28,7 +28,9 @@ class PDFConverterApp(ctk.CTk):
         self.grid_rowconfigure(4, weight=1)  # Status/Progress
 
         # Variables
-        self.pdf_path = ctk.StringVar()
+        # Variables
+        self.input_mode = ctk.StringVar(value="PDF")  # "PDF" or "Images"
+        self.input_path = ctk.StringVar()
         self.output_folder = ctk.StringVar()
         self.generate_etdx = ctk.BooleanVar(value=False)
         self.is_converting = False
@@ -38,26 +40,39 @@ class PDFConverterApp(ctk.CTk):
 
     def create_widgets(self):
         # Title
-        self.title_label = ctk.CTkLabel(self, text="PDF to Image & ETDX Converter", font=ctk.CTkFont(size=22, weight="bold"))
+        self.title_label = ctk.CTkLabel(self, text="PDF/Images to ETDX Converter", font=ctk.CTkFont(size=22, weight="bold"))
         self.title_label.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="ew")
+
+        # Mode Selection
+        self.mode_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.mode_frame.grid(row=1, column=0, padx=20, pady=(0, 10), sticky="ew")
+        
+        self.mode_label = ctk.CTkLabel(self.mode_frame, text="Source Mode:", font=ctk.CTkFont(weight="bold"))
+        self.mode_label.pack(side="left", padx=(0, 10))
+        
+        self.pdf_radio = ctk.CTkRadioButton(self.mode_frame, text="PDF File", variable=self.input_mode, value="PDF", command=self.update_ui_mode)
+        self.pdf_radio.pack(side="left", padx=10)
+        
+        self.img_radio = ctk.CTkRadioButton(self.mode_frame, text="Image Folder (PNG)", variable=self.input_mode, value="Images", command=self.update_ui_mode)
+        self.img_radio.pack(side="left", padx=10)
 
         # Input Section
         self.input_frame = ctk.CTkFrame(self)
-        self.input_frame.grid(row=1, column=0, padx=20, pady=10, sticky="ew")
+        self.input_frame.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
         self.input_frame.grid_columnconfigure(1, weight=1)
 
         self.input_label = ctk.CTkLabel(self.input_frame, text="PDF File:")
         self.input_label.grid(row=0, column=0, padx=10, pady=10)
 
-        self.input_entry = ctk.CTkEntry(self.input_frame, textvariable=self.pdf_path, placeholder_text="Select a PDF file...")
+        self.input_entry = ctk.CTkEntry(self.input_frame, textvariable=self.input_path, placeholder_text="Select a PDF file...")
         self.input_entry.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
 
-        self.browse_input_btn = ctk.CTkButton(self.input_frame, text="Browse", width=80, command=self.browse_pdf)
+        self.browse_input_btn = ctk.CTkButton(self.input_frame, text="Browse", width=80, command=self.browse_input)
         self.browse_input_btn.grid(row=0, column=2, padx=10, pady=10)
 
         # Output Section
         self.output_frame = ctk.CTkFrame(self)
-        self.output_frame.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
+        self.output_frame.grid(row=3, column=0, padx=20, pady=10, sticky="ew")
         self.output_frame.grid_columnconfigure(1, weight=1)
 
         self.output_label = ctk.CTkLabel(self.output_frame, text="Output Folder:")
@@ -76,27 +91,46 @@ class PDFConverterApp(ctk.CTk):
             variable=self.generate_etdx,
             font=ctk.CTkFont(size=13)
         )
-        self.etdx_checkbox.grid(row=3, column=0, padx=20, pady=(10, 5), sticky="w")
+        self.etdx_checkbox.grid(row=4, column=0, padx=20, pady=(10, 5), sticky="w")
 
         # Convert Button
         self.convert_btn = ctk.CTkButton(self, text="Convert", font=ctk.CTkFont(size=16, weight="bold"), height=40, command=self.start_conversion)
-        self.convert_btn.grid(row=4, column=0, padx=20, pady=(5, 20), sticky="ew")
+        self.convert_btn.grid(row=5, column=0, padx=20, pady=(5, 20), sticky="ew")
 
         # Status/Progress
         self.status_label = ctk.CTkLabel(self, text="Ready", text_color="gray")
-        self.status_label.grid(row=5, column=0, padx=20, pady=10)
+        self.status_label.grid(row=6, column=0, padx=20, pady=10)
 
         self.progressbar = ctk.CTkProgressBar(self)
-        self.progressbar.grid(row=6, column=0, padx=20, pady=(0, 20), sticky="ew")
+        self.progressbar.grid(row=7, column=0, padx=20, pady=(0, 20), sticky="ew")
         self.progressbar.set(0)
 
-    def browse_pdf(self):
-        filename = filedialog.askopenfilename(filetypes=[("PDF Files", "*.pdf")])
-        if filename:
-            self.pdf_path.set(filename)
-            # Auto-set output folder to the same directory if empty
-            if not self.output_folder.get():
-                self.output_folder.set(os.path.dirname(filename))
+    def update_ui_mode(self):
+        mode = self.input_mode.get()
+        if mode == "PDF":
+            self.input_label.configure(text="PDF File:")
+            self.input_entry.configure(placeholder_text="Select a PDF file...")
+            self.etdx_checkbox.configure(state="normal")
+        else:
+            self.input_label.configure(text="Images Folder:")
+            self.input_entry.configure(placeholder_text="Select folder with PNG images...")
+            self.generate_etdx.set(True)
+            self.etdx_checkbox.configure(state="disabled") # Always generate ETDX in Image mode
+
+    def browse_input(self):
+        mode = self.input_mode.get()
+        if mode == "PDF":
+            filename = filedialog.askopenfilename(filetypes=[("PDF Files", "*.pdf")])
+            if filename:
+                self.input_path.set(filename)
+                if not self.output_folder.get():
+                    self.output_folder.set(os.path.dirname(filename))
+        else:
+            folder = filedialog.askdirectory()
+            if folder:
+                self.input_path.set(folder)
+                if not self.output_folder.get():
+                    self.output_folder.set(folder)
 
     def browse_output(self):
         foldername = filedialog.askdirectory()
@@ -107,11 +141,13 @@ class PDFConverterApp(ctk.CTk):
         if self.is_converting:
             return
 
-        pdf_file = self.pdf_path.get()
+        input_path = self.input_path.get()
         output_dir = self.output_folder.get()
+        mode = self.input_mode.get()
 
-        if not pdf_file or not os.path.exists(pdf_file):
-            messagebox.showerror("Error", "Please select a valid PDF file.")
+        if not input_path or not os.path.exists(input_path):
+            msg = "Please select a valid PDF file." if mode == "PDF" else "Please select a valid folder."
+            messagebox.showerror("Error", msg)
             return
         
         if not output_dir:
@@ -119,42 +155,67 @@ class PDFConverterApp(ctk.CTk):
             return
 
         self.is_converting = True
-        self.convert_btn.configure(state="disabled", text="Converting...")
+        self.convert_btn.configure(state="disabled", text="Processing...")
         self.progressbar.set(0)
-        self.status_label.configure(text="Starting conversion...", text_color="blue")
+        self.status_label.configure(text="Starting process...", text_color="blue")
 
         # Run in a separate thread to keep GUI responsive
-        threading.Thread(target=self.convert_process, args=(pdf_file, output_dir), daemon=True).start()
+        threading.Thread(target=self.convert_process, args=(input_path, output_dir, mode), daemon=True).start()
 
-    def convert_process(self, pdf_file, output_dir):
+    def convert_process(self, input_path, output_dir, mode):
         try:
-            # Get PDF name for file naming
-            pdf_name = os.path.splitext(os.path.basename(pdf_file))[0]
-            
-            self.update_status("Reading PDF info...")
-            
-            # Convert PDF to images
-            self.update_status("Converting pages... (this may take a moment)")
-            self.progressbar.start()
-            
-            # Use high DPI (300) for maximum quality - matches print quality
-            images = convert_from_path(pdf_file, dpi=300)
-            
-            self.progressbar.stop()
-            self.progressbar.set(0.4)
-            self.update_status(f"Saving {len(images)} images...")
-
-            # Save PNG images
             image_paths = []
-            for i, image in enumerate(images):
-                image_name = f"{pdf_name}_page_{i + 1}.png"
-                image_path = os.path.join(output_dir, image_name)
-                image.save(image_path, "PNG")
-                image_paths.append(image_path)
+            base_name = "output"
+
+            if mode == "PDF":
+                # Get PDF name for file naming
+                base_name = os.path.splitext(os.path.basename(input_path))[0]
                 
-                # Update progress (40% to 70%)
-                progress = 0.4 + (0.3 * (i + 1) / len(images))
-                self.progressbar.set(progress)
+                self.update_status("Reading PDF info...")
+                self.update_status("Converting pages... (this may take a moment)")
+                self.progressbar.start()
+                
+                # Use high DPI (300) for maximum quality - matches print quality
+                images = convert_from_path(input_path, dpi=300)
+                
+                self.progressbar.stop()
+                self.progressbar.set(0.4)
+                self.update_status(f"Saving {len(images)} images...")
+
+                # Save PNG images
+                for i, image in enumerate(images):
+                    image_name = f"{base_name}_page_{i + 1}.png"
+                    image_path = os.path.join(output_dir, image_name)
+                    image.save(image_path, "PNG")
+                    image_paths.append(image_path)
+                    
+                    # Update progress (40% to 70%)
+                    progress = 0.4 + (0.3 * (i + 1) / len(images))
+                    self.progressbar.set(progress)
+            
+            else: # Image Mode
+                self.update_status("Reading images from folder...")
+                base_name = os.path.basename(input_path)
+                
+                # Find all PNGs
+                all_files = [f for f in os.listdir(input_path) if f.lower().endswith('.png')]
+                
+                # Sort naturally (e.g. 1, 2, 10 instead of 1, 10, 2)
+                # Assuming files have numbers in them
+                import re
+                def natural_sort_key(s):
+                    return [int(text) if text.isdigit() else text.lower()
+                            for text in re.split('([0-9]+)', s)]
+                
+                all_files.sort(key=natural_sort_key)
+                
+                image_paths = [os.path.join(input_path, f) for f in all_files]
+                
+                if not image_paths:
+                    raise ValueError("No PNG images found in the selected folder.")
+                
+                self.progressbar.set(0.6)
+                self.update_status(f"Found {len(image_paths)} images...")
 
             # Generate ETDX templates if requested
             if self.generate_etdx.get():
@@ -184,12 +245,12 @@ class PDFConverterApp(ctk.CTk):
                     generator = ETDXGenerator(template_base)
                     
                     # Generate templates
-                    etdx_files = generator.batch_generate(image_paths, output_dir, "kay")
+                    etdx_files = generator.batch_generate(image_paths, output_dir, base_name)
                     
                     self.progressbar.set(1.0)
                     self.conversion_complete(
                         True, 
-                        f"Successfully converted {len(images)} pages!\n"
+                        f"Successfully processed {len(image_paths)} images!\n"
                         f"Generated {len(etdx_files)} ETDX template(s)."
                     )
                 except Exception as e:
@@ -197,7 +258,7 @@ class PDFConverterApp(ctk.CTk):
                     return
             else:
                 self.progressbar.set(1.0)
-                self.conversion_complete(True, f"Successfully converted {len(images)} pages!")
+                self.conversion_complete(True, f"Successfully converted {len(image_paths)} pages!")
 
         except Exception as e:
             self.conversion_complete(False, str(e))
