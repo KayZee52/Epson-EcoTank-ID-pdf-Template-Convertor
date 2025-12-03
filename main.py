@@ -4,6 +4,7 @@ from pdf2image import convert_from_path
 import threading
 import os
 import sys
+from PIL import Image
 from etdx_generator import ETDXGenerator
 
 # Configuration
@@ -32,6 +33,9 @@ class PDFConverterApp(ctk.CTk):
         self.input_mode = ctk.StringVar(value="PDF")  # "PDF" or "Images"
         self.input_path = ctk.StringVar()
         self.output_folder = ctk.StringVar()
+        self.orientation = ctk.StringVar(value="Landscape") # "Landscape" or "Portrait"
+        self.generate_etdx = ctk.BooleanVar(value=False)
+        self.is_converting = False
         self.generate_etdx = ctk.BooleanVar(value=False)
         self.is_converting = False
 
@@ -56,9 +60,35 @@ class PDFConverterApp(ctk.CTk):
         self.img_radio = ctk.CTkRadioButton(self.mode_frame, text="Image Folder (PNG)", variable=self.input_mode, value="Images", command=self.update_ui_mode)
         self.img_radio.pack(side="left", padx=10)
 
+        # Orientation Selection
+        self.orient_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.orient_frame.grid(row=2, column=0, padx=20, pady=(0, 10), sticky="ew")
+        
+        self.orient_label = ctk.CTkLabel(self.orient_frame, text="Orientation:", font=ctk.CTkFont(weight="bold"))
+        self.orient_label.pack(side="left", padx=(0, 10))
+        
+        self.land_radio = ctk.CTkRadioButton(self.orient_frame, text="Landscape (86x54)", variable=self.orientation, value="Landscape")
+        self.land_radio.pack(side="left", padx=10)
+        
+        self.port_radio = ctk.CTkRadioButton(self.orient_frame, text="Portrait (54x86)", variable=self.orientation, value="Portrait")
+        self.port_radio.pack(side="left", padx=10)
+
+        # Orientation Selection
+        self.orient_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.orient_frame.grid(row=2, column=0, padx=20, pady=(0, 10), sticky="ew")
+        
+        self.orient_label = ctk.CTkLabel(self.orient_frame, text="Orientation:", font=ctk.CTkFont(weight="bold"))
+        self.orient_label.pack(side="left", padx=(0, 10))
+        
+        self.land_radio = ctk.CTkRadioButton(self.orient_frame, text="Landscape (86x54)", variable=self.orientation, value="Landscape")
+        self.land_radio.pack(side="left", padx=10)
+        
+        self.port_radio = ctk.CTkRadioButton(self.orient_frame, text="Portrait (54x86)", variable=self.orientation, value="Portrait")
+        self.port_radio.pack(side="left", padx=10)
+
         # Input Section
         self.input_frame = ctk.CTkFrame(self)
-        self.input_frame.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
+        self.input_frame.grid(row=3, column=0, padx=20, pady=10, sticky="ew")
         self.input_frame.grid_columnconfigure(1, weight=1)
 
         self.input_label = ctk.CTkLabel(self.input_frame, text="PDF File:")
@@ -72,7 +102,7 @@ class PDFConverterApp(ctk.CTk):
 
         # Output Section
         self.output_frame = ctk.CTkFrame(self)
-        self.output_frame.grid(row=3, column=0, padx=20, pady=10, sticky="ew")
+        self.output_frame.grid(row=4, column=0, padx=20, pady=10, sticky="ew")
         self.output_frame.grid_columnconfigure(1, weight=1)
 
         self.output_label = ctk.CTkLabel(self.output_frame, text="Output Folder:")
@@ -91,18 +121,18 @@ class PDFConverterApp(ctk.CTk):
             variable=self.generate_etdx,
             font=ctk.CTkFont(size=13)
         )
-        self.etdx_checkbox.grid(row=4, column=0, padx=20, pady=(10, 5), sticky="w")
+        self.etdx_checkbox.grid(row=5, column=0, padx=20, pady=(10, 5), sticky="w")
 
         # Convert Button
         self.convert_btn = ctk.CTkButton(self, text="Convert", font=ctk.CTkFont(size=16, weight="bold"), height=40, command=self.start_conversion)
-        self.convert_btn.grid(row=5, column=0, padx=20, pady=(5, 20), sticky="ew")
+        self.convert_btn.grid(row=6, column=0, padx=20, pady=(5, 20), sticky="ew")
 
         # Status/Progress
         self.status_label = ctk.CTkLabel(self, text="Ready", text_color="gray")
-        self.status_label.grid(row=6, column=0, padx=20, pady=10)
+        self.status_label.grid(row=7, column=0, padx=20, pady=10)
 
         self.progressbar = ctk.CTkProgressBar(self)
-        self.progressbar.grid(row=7, column=0, padx=20, pady=(0, 20), sticky="ew")
+        self.progressbar.grid(row=8, column=0, padx=20, pady=(0, 20), sticky="ew")
         self.progressbar.set(0)
 
     def update_ui_mode(self):
@@ -158,11 +188,13 @@ class PDFConverterApp(ctk.CTk):
         self.convert_btn.configure(state="disabled", text="Processing...")
         self.progressbar.set(0)
         self.status_label.configure(text="Starting process...", text_color="blue")
+        
+        orientation = self.orientation.get()
 
         # Run in a separate thread to keep GUI responsive
-        threading.Thread(target=self.convert_process, args=(input_path, output_dir, mode), daemon=True).start()
+        threading.Thread(target=self.convert_process, args=(input_path, output_dir, mode, orientation), daemon=True).start()
 
-    def convert_process(self, input_path, output_dir, mode):
+    def convert_process(self, input_path, output_dir, mode, orientation):
         try:
             image_paths = []
             base_name = "output"
@@ -177,6 +209,11 @@ class PDFConverterApp(ctk.CTk):
                 
                 # Use high DPI (300) for maximum quality - matches print quality
                 images = convert_from_path(input_path, dpi=300)
+                
+                # Rotate if Portrait
+                if orientation == "Portrait":
+                    self.update_status("Rotating images for portrait mode...")
+                    images = [img.rotate(90, expand=True) for img in images]
                 
                 self.progressbar.stop()
                 self.progressbar.set(0.4)
@@ -200,8 +237,7 @@ class PDFConverterApp(ctk.CTk):
                 # Find all PNGs
                 all_files = [f for f in os.listdir(input_path) if f.lower().endswith('.png')]
                 
-                # Sort naturally (e.g. 1, 2, 10 instead of 1, 10, 2)
-                # Assuming files have numbers in them
+                # Sort naturally
                 import re
                 def natural_sort_key(s):
                     return [int(text) if text.isdigit() else text.lower()
@@ -209,10 +245,31 @@ class PDFConverterApp(ctk.CTk):
                 
                 all_files.sort(key=natural_sort_key)
                 
-                image_paths = [os.path.join(input_path, f) for f in all_files]
+                raw_image_paths = [os.path.join(input_path, f) for f in all_files]
                 
-                if not image_paths:
+                if not raw_image_paths:
                     raise ValueError("No PNG images found in the selected folder.")
+                
+                # Handle rotation if Portrait
+                if orientation == "Portrait":
+                    self.update_status("Rotating images for portrait mode...")
+                    # Create temp dir for rotated images
+                    temp_rot_dir = os.path.join(output_dir, "_temp_rotated")
+                    os.makedirs(temp_rot_dir, exist_ok=True)
+                    
+                    image_paths = []
+                    for i, p in enumerate(raw_image_paths):
+                        try:
+                            with Image.open(p) as img:
+                                rotated = img.rotate(90, expand=True)
+                                new_name = os.path.basename(p)
+                                new_path = os.path.join(temp_rot_dir, new_name)
+                                rotated.save(new_path)
+                                image_paths.append(new_path)
+                        except Exception as e:
+                            print(f"Error rotating {p}: {e}")
+                else:
+                    image_paths = raw_image_paths
                 
                 self.progressbar.set(0.6)
                 self.update_status(f"Found {len(image_paths)} images...")
