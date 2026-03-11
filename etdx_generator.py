@@ -128,20 +128,25 @@ class ETDXGenerator:
         
         return page_info
     
-    def generate_etdx(self, image_pairs: List[Tuple[str, str, str, str]], 
-                     output_path: str, template_name: str = "kay"):
+    def generate_etdx(self, images: List[str], 
+                     output_path: str, template_name: str = "kay", front_only: bool = False):
         """
         Generate .etdx template file.
         
         Args:
-            image_pairs: List of (front1, back1, front2, back2) image paths
+            images: List of image paths (4 for front/back, 2 for front only)
             output_path: Directory to save .etdx file
             template_name: Base name for template (e.g., "kay1")
+            front_only: If True, generate template with only front side printed
         """
-        if len(image_pairs) != 4:
-            raise ValueError("Expected 4 images: front1, back1, front2, back2")
+        expected_images = 2 if front_only else 4
+        if len(images) != expected_images:
+            raise ValueError(f"Expected {expected_images} images, got {len(images)}")
         
-        front1_path, back1_path, front2_path, back2_path = image_pairs
+        if front_only:
+            front1_path, front2_path = images
+        else:
+            front1_path, back1_path, front2_path, back2_path = images
         
         # Create temporary directory for template assembly
         temp_dir = Path(output_path) / f"_temp_{template_name}"
@@ -150,19 +155,20 @@ class ETDXGenerator:
         try:
             # Generate UUIDs
             front_page_uuid = str(uuid.uuid4()).upper()
-            back_page_uuid = str(uuid.uuid4()).upper()
-            
             front1_img_uuid = str(uuid.uuid4()).upper()
             front2_img_uuid = str(uuid.uuid4()).upper()
-            back1_img_uuid = str(uuid.uuid4()).upper()
-            back2_img_uuid = str(uuid.uuid4()).upper()
+            
+            if not front_only:
+                back_page_uuid = str(uuid.uuid4()).upper()
+                back1_img_uuid = str(uuid.uuid4()).upper()
+                back2_img_uuid = str(uuid.uuid4()).upper()
             
             # Copy base files
             shutil.copy(self.base_template_dir / "projectinfo.json", temp_dir / "projectinfo.json")
             shutil.copytree(self.base_template_dir / "BaseData", temp_dir / "BaseData")
             
             # Create page.json
-            page_json = [front_page_uuid, back_page_uuid]
+            page_json = [front_page_uuid] if front_only else [front_page_uuid, back_page_uuid]
             with open(temp_dir / "page.json", 'w') as f:
                 json.dump(page_json, f)
             
@@ -171,10 +177,12 @@ class ETDXGenerator:
                 front1_size = img.size
             with Image.open(front2_path) as img:
                 front2_size = img.size
-            with Image.open(back1_path) as img:
-                back1_size = img.size
-            with Image.open(back2_path) as img:
-                back2_size = img.size
+            
+            if not front_only:
+                with Image.open(back1_path) as img:
+                    back1_size = img.size
+                with Image.open(back2_path) as img:
+                    back2_size = img.size
             
             # Create Front page
             front_page_dir = temp_dir / front_page_uuid
@@ -210,39 +218,40 @@ class ETDXGenerator:
             with open(front_page_dir / "_info.json", 'w') as f:
                 json.dump(front_page_info, f)
             
-            # Create Back page
-            back_page_dir = temp_dir / back_page_uuid
-            back_page_dir.mkdir()
-            
-            # Copy back images
-            back1_dir = back_page_dir / back1_img_uuid
-            back1_dir.mkdir()
-            back1_filename = Path(back1_path).name
-            shutil.copy(back1_path, back1_dir / back1_filename)
-            
-            back2_dir = back_page_dir / back2_img_uuid
-            back2_dir.mkdir()
-            back2_filename = Path(back2_path).name
-            shutil.copy(back2_path, back2_dir / back2_filename)
-            
-            # Create back page photos
-            back_photos = [
-                self.create_photo_object(
-                    f"{back1_img_uuid}/{back1_filename}",
-                    1,
-                    back1_size
-                ),
-                self.create_photo_object(
-                    f"{back2_img_uuid}/{back2_filename}",
-                    2,
-                    back2_size
-                )
-            ]
-            
-            # Save back page _info.json
-            back_page_info = self.create_page_info(back_photos)
-            with open(back_page_dir / "_info.json", 'w') as f:
-                json.dump(back_page_info, f)
+            if not front_only:
+                # Create Back page
+                back_page_dir = temp_dir / back_page_uuid
+                back_page_dir.mkdir()
+                
+                # Copy back images
+                back1_dir = back_page_dir / back1_img_uuid
+                back1_dir.mkdir()
+                back1_filename = Path(back1_path).name
+                shutil.copy(back1_path, back1_dir / back1_filename)
+                
+                back2_dir = back_page_dir / back2_img_uuid
+                back2_dir.mkdir()
+                back2_filename = Path(back2_path).name
+                shutil.copy(back2_path, back2_dir / back2_filename)
+                
+                # Create back page photos
+                back_photos = [
+                    self.create_photo_object(
+                        f"{back1_img_uuid}/{back1_filename}",
+                        1,
+                        back1_size
+                    ),
+                    self.create_photo_object(
+                        f"{back2_img_uuid}/{back2_filename}",
+                        2,
+                        back2_size
+                    )
+                ]
+                
+                # Save back page _info.json
+                back_page_info = self.create_page_info(back_photos)
+                with open(back_page_dir / "_info.json", 'w') as f:
+                    json.dump(back_page_info, f)
             
             # Create .etdx ZIP file
             etdx_path = Path(output_path) / f"{template_name}.etdx"
@@ -261,30 +270,32 @@ class ETDXGenerator:
                 shutil.rmtree(temp_dir)
     
     def batch_generate(self, pdf_images: List[str], output_dir: str, 
-                      base_name: str = "kay") -> List[str]:
+                      base_name: str = "kay", front_only: bool = False) -> List[str]:
         """
         Generate multiple .etdx files from PDF images.
         
         Args:
-            pdf_images: List of image paths in order [F1, B1, F2, B2, F3, B3, ...]
+            pdf_images: List of image paths in order [F1, B1, F2, B2, F3, B3, ...] (or [F1, F2...] if front_only)
             output_dir: Directory to save .etdx files
             base_name: Base name for templates (e.g., "kay" -> "kay1.etdx", "kay2.etdx")
+            front_only: If True, generate template with only front side printed
             
         Returns:
             List of generated .etdx file paths
         """
-        if len(pdf_images) % 4 != 0:
-            raise ValueError(f"Expected multiple of 4 images, got {len(pdf_images)}")
+        group_size = 2 if front_only else 4
+        if len(pdf_images) % group_size != 0:
+            raise ValueError(f"Expected multiple of {group_size} images, got {len(pdf_images)}")
         
         generated_files = []
         
-        # Process in groups of 4
-        for i in range(0, len(pdf_images), 4):
-            template_num = (i // 4) + 1
+        # Process in groups
+        for i in range(0, len(pdf_images), group_size):
+            template_num = (i // group_size) + 1
             template_name = f"{base_name}{template_num}"
             
-            image_group = pdf_images[i:i+4]
-            etdx_path = self.generate_etdx(image_group, output_dir, template_name)
+            image_group = pdf_images[i:i+group_size]
+            etdx_path = self.generate_etdx(image_group, output_dir, template_name, front_only=front_only)
             generated_files.append(etdx_path)
         
         return generated_files

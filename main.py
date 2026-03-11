@@ -29,13 +29,11 @@ class PDFConverterApp(ctk.CTk):
         self.grid_rowconfigure(4, weight=1)  # Status/Progress
 
         # Variables
-        # Variables
         self.input_mode = ctk.StringVar(value="PDF")  # "PDF" or "Images"
         self.input_path = ctk.StringVar()
         self.output_folder = ctk.StringVar()
         self.orientation = ctk.StringVar(value="Landscape") # "Landscape" or "Portrait"
-        self.generate_etdx = ctk.BooleanVar(value=False)
-        self.is_converting = False
+        self.sides_var = ctk.StringVar(value="Front & Back") # "Front & Back" or "Front Only"
         self.generate_etdx = ctk.BooleanVar(value=False)
         self.is_converting = False
 
@@ -73,22 +71,22 @@ class PDFConverterApp(ctk.CTk):
         self.port_radio = ctk.CTkRadioButton(self.orient_frame, text="Portrait (54x86)", variable=self.orientation, value="Portrait")
         self.port_radio.pack(side="left", padx=10)
 
-        # Orientation Selection
-        self.orient_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.orient_frame.grid(row=2, column=0, padx=20, pady=(0, 10), sticky="ew")
+        # Sides Selection
+        self.sides_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.sides_frame.grid(row=3, column=0, padx=20, pady=(0, 10), sticky="ew")
         
-        self.orient_label = ctk.CTkLabel(self.orient_frame, text="Orientation:", font=ctk.CTkFont(weight="bold"))
-        self.orient_label.pack(side="left", padx=(0, 10))
+        self.sides_label = ctk.CTkLabel(self.sides_frame, text="Sides:", font=ctk.CTkFont(weight="bold"))
+        self.sides_label.pack(side="left", padx=(0, 10))
         
-        self.land_radio = ctk.CTkRadioButton(self.orient_frame, text="Landscape (86x54)", variable=self.orientation, value="Landscape")
-        self.land_radio.pack(side="left", padx=10)
+        self.both_radio = ctk.CTkRadioButton(self.sides_frame, text="Front & Back", variable=self.sides_var, value="Front & Back")
+        self.both_radio.pack(side="left", padx=10)
         
-        self.port_radio = ctk.CTkRadioButton(self.orient_frame, text="Portrait (54x86)", variable=self.orientation, value="Portrait")
-        self.port_radio.pack(side="left", padx=10)
+        self.front_radio = ctk.CTkRadioButton(self.sides_frame, text="Front Only", variable=self.sides_var, value="Front Only")
+        self.front_radio.pack(side="left", padx=10)
 
         # Input Section
         self.input_frame = ctk.CTkFrame(self)
-        self.input_frame.grid(row=3, column=0, padx=20, pady=10, sticky="ew")
+        self.input_frame.grid(row=4, column=0, padx=20, pady=10, sticky="ew")
         self.input_frame.grid_columnconfigure(1, weight=1)
 
         self.input_label = ctk.CTkLabel(self.input_frame, text="PDF File:")
@@ -102,7 +100,7 @@ class PDFConverterApp(ctk.CTk):
 
         # Output Section
         self.output_frame = ctk.CTkFrame(self)
-        self.output_frame.grid(row=4, column=0, padx=20, pady=10, sticky="ew")
+        self.output_frame.grid(row=5, column=0, padx=20, pady=10, sticky="ew")
         self.output_frame.grid_columnconfigure(1, weight=1)
 
         self.output_label = ctk.CTkLabel(self.output_frame, text="Output Folder:")
@@ -121,18 +119,18 @@ class PDFConverterApp(ctk.CTk):
             variable=self.generate_etdx,
             font=ctk.CTkFont(size=13)
         )
-        self.etdx_checkbox.grid(row=5, column=0, padx=20, pady=(10, 5), sticky="w")
+        self.etdx_checkbox.grid(row=6, column=0, padx=20, pady=(10, 5), sticky="w")
 
         # Convert Button
         self.convert_btn = ctk.CTkButton(self, text="Convert", font=ctk.CTkFont(size=16, weight="bold"), height=40, command=self.start_conversion)
-        self.convert_btn.grid(row=6, column=0, padx=20, pady=(5, 20), sticky="ew")
+        self.convert_btn.grid(row=7, column=0, padx=20, pady=(5, 20), sticky="ew")
 
         # Status/Progress
         self.status_label = ctk.CTkLabel(self, text="Ready", text_color="gray")
-        self.status_label.grid(row=7, column=0, padx=20, pady=10)
+        self.status_label.grid(row=8, column=0, padx=20, pady=10)
 
         self.progressbar = ctk.CTkProgressBar(self)
-        self.progressbar.grid(row=8, column=0, padx=20, pady=(0, 20), sticky="ew")
+        self.progressbar.grid(row=9, column=0, padx=20, pady=(0, 20), sticky="ew")
         self.progressbar.set(0)
 
     def update_ui_mode(self):
@@ -279,20 +277,28 @@ class PDFConverterApp(ctk.CTk):
                 self.progressbar.set(0.7)
                 self.update_status("Generating ETDX templates...")
                 
-                # Pad with last 2 images if not a multiple of 4
-                remainder = len(image_paths) % 4
+                front_only = (self.sides_var.get() == "Front Only")
+                group_size = 2 if front_only else 4
+                
+                # Pad with last 2 images if not a multiple of group_size
+                remainder = len(image_paths) % group_size
                 if remainder != 0:
-                    # Need to add (4 - remainder) images
-                    padding_needed = 4 - remainder
-                    # Clone the last 2 images to complete the set
-                    if len(image_paths) >= 2:
+                    # Need to add (group_size - remainder) images
+                    padding_needed = group_size - remainder
+                    # Clone the last images to complete the set
+                    if front_only and len(image_paths) >= 1:
+                        padding_images = [image_paths[-1]] * padding_needed
+                        image_paths.extend(padding_images)
+                        self.update_status(f"Padded with {padding_needed} images to complete template...")
+                    elif not front_only and len(image_paths) >= 2:
                         padding_images = image_paths[-2:] * ((padding_needed + 1) // 2)
                         image_paths.extend(padding_images[:padding_needed])
                         self.update_status(f"Padded with {padding_needed} images to complete template...")
                     else:
+                        req_images = 1 if front_only else 2
                         self.conversion_complete(
                             False, 
-                            f"Not enough images to pad. Need at least 2 images."
+                            f"Not enough images to pad. Need at least {req_images} images."
                         )
                         return
                 
@@ -302,7 +308,7 @@ class PDFConverterApp(ctk.CTk):
                     generator = ETDXGenerator(template_base)
                     
                     # Generate templates
-                    etdx_files = generator.batch_generate(image_paths, output_dir, base_name)
+                    etdx_files = generator.batch_generate(image_paths, output_dir, base_name, front_only=front_only)
                     
                     self.progressbar.set(1.0)
                     self.conversion_complete(
