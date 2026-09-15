@@ -19,18 +19,40 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
-      - name: Build executable
+      - name: Build independent application bundle
         shell: cmd
         run: >-
-          python -m PyInstaller --noconfirm --clean --onefile --windowed
+          python -m PyInstaller --noconfirm --clean --onedir --windowed
           --name "Epson EcoTank ID Converter"
           --add-data "template_base;template_base"
           --collect-all pymupdf main.py
-      - name: Upload executable
+      - name: Smoke-test bundled dependencies
+        shell: pwsh
+        run: |
+          $required = @(
+            "dist/Epson EcoTank ID Converter/Epson EcoTank ID Converter.exe",
+            "dist/Epson EcoTank ID Converter/_internal/template_base/projectinfo.json",
+            "dist/Epson EcoTank ID Converter/_internal/template_base/page.json"
+          )
+          foreach ($item in $required) {
+            if (-not (Test-Path $item)) { throw "Missing bundled file: $item" }
+          }
+      - name: Install installer compiler
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+      - name: Build Windows 11 installer
+        shell: cmd
+        run: iscc installer.iss
+      - name: Create portable ZIP
+        shell: pwsh
+        run: Compress-Archive -Path "dist/Epson EcoTank ID Converter/*" -DestinationPath "installer-dist/Epson-EcoTank-ID-Converter-Portable.zip"
+      - name: Upload installer and portable package
         uses: actions/upload-artifact@v4
         with:
           name: Epson-EcoTank-ID-Converter-Windows
-          path: dist/Epson EcoTank ID Converter.exe
+          path: |
+            installer-dist/Epson-EcoTank-ID-Converter-Setup.exe
+            installer-dist/Epson-EcoTank-ID-Converter-Portable.zip
           if-no-files-found: error
       - name: Publish downloadable Windows release
         if: github.ref == 'refs/heads/main'
@@ -43,4 +65,4 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag --title "Epson EcoTank ID Converter for Windows" --notes "Standalone Windows application. No Python or Poppler installation is required."
           }
-          gh release upload $tag "dist/Epson EcoTank ID Converter.exe" --clobber
+          gh release upload $tag "installer-dist/Epson-EcoTank-ID-Converter-Setup.exe" "installer-dist/Epson-EcoTank-ID-Converter-Portable.zip" --clobber

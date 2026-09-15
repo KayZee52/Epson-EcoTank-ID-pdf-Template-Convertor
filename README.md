@@ -6,7 +6,9 @@ A simple Windows desktop app that converts an ID-card PDF (or a folder of PNG pa
 
 1. On Windows, install Python 3.11 or newer from [python.org](https://www.python.org/downloads/windows/). Enable **Add Python to PATH**.
 2. Double-click `build_windows.bat`.
-3. Find the standalone app at `dist\Epson EcoTank ID Converter.exe`.
+3. Find the independent application bundle at `dist\Epson EcoTank ID Converter\`.
+
+The GitHub release provides `Epson-EcoTank-ID-Converter-Setup.exe`, a normal Windows 11 installation wizard. It installs the app for the current user and creates Start Menu and optional Desktop shortcuts. The release also includes a portable ZIP for users without installation permission.
 
 The `.exe` contains the Python dependencies and Epson base template. Poppler is not needed.
 
