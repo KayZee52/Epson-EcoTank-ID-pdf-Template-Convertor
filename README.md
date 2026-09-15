@@ -26,3 +26,14 @@ Front-and-back pages are ordered `front 1, back 1, front 2, back 2`; every four 
 py -m pip install -r requirements.txt
 py main.py
 ```
+
+## Share on a local network
+
+Install the requirements and start the browser interface:
+
+```powershell
+py -m pip install -r requirements.txt
+py converter.py --serve
+```
+
+The command prints the address to open on other devices, such as `http://192.168.1.25:8080`. Allow Python through Windows Firewall when prompted. Keep this service on a trusted local network; it has no user accounts and should not be exposed directly to the internet.

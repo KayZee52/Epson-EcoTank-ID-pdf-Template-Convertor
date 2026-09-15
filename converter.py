@@ -119,3 +119,25 @@ def convert(options: ConversionOptions, progress: Progress | None = None) -> Con
         etdx_files = [Path(path) for path in generated]
     report(100, "Conversion complete")
     return ConversionResult(len(images), images, etdx_files)
+
+
+if __name__ == "__main__":
+    import argparse
+    import socket
+
+    parser = argparse.ArgumentParser(description="Epson EcoTank ID converter")
+    parser.add_argument("--serve", action="store_true", help="share the converter through a web browser")
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=8080)
+    arguments = parser.parse_args()
+    if not arguments.serve:
+        parser.error("use --serve to start the network interface")
+    from web_app import run_server
+
+    try:
+        address = socket.gethostbyname(socket.gethostname())
+    except OSError:
+        address = "this-computer's-IP"
+    print(f"Epson converter is available at http://{address}:{arguments.port}")
+    print("Press Ctrl+C to stop it.")
+    run_server(arguments.host, arguments.port)
