@@ -1,5 +1,8 @@
 name: Build Windows app
 
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
   push:
@@ -29,4 +32,15 @@ jobs:
           name: Epson-EcoTank-ID-Converter-Windows
           path: dist/Epson EcoTank ID Converter.exe
           if-no-files-found: error
-
+      - name: Publish downloadable Windows release
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "windows-latest"
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title "Epson EcoTank ID Converter for Windows" --notes "Standalone Windows application. No Python or Poppler installation is required."
+          }
+          gh release upload $tag "dist/Epson EcoTank ID Converter.exe" --clobber
