@@ -1,304 +1,177 @@
-"""
-ETDX Template Generator for Epson Photo+ ID Card Printing
-This module generates .etdx template files from PDF pages for use with
-Epson Photo+ software. Each template contains 2 ID cards (front and back).
-"""
+"""Generate Epson Photo+ 4.x ID-card template packages."""
+from __future__ import annotations
+
 import json
 import os
+import secrets
 import shutil
-import uuid
+import string
+import tempfile
 import zipfile
+from copy import deepcopy
 from pathlib import Path
-from typing import List, Tuple
+from typing import List
+
 from PIL import Image
+
+
+PROJECT_INFO = {
+    "appVersion": "4.0.4.0",
+    "editInfo": {"pageEditInfo": {"canAddPage": True, "canCopyPage": True, "canRemovePage": True}},
+    "formatInfo": {"saveFormat": 0},
+}
+
+PAPER = {
+    "paperSizeId": "IC",
+    "size": [764, 1218],
+    "orientation": 0,
+    "topleft": [0, 0],
+    "defaultAddTextFontSize": 15.0,
+    "backgroundData": {
+        "backgroundImage": "",
+        "backgroundPattern": {
+            "type": "C", "size": "S", "patternColor": [255, 255, 255, 255],
+            "patternName": "", "layout": "T", "angle": 0.0, "scale": 1.0, "density": 50,
+        },
+    },
+    "vergeData": {
+        "borderType": "BL", "isEquablePhotoSize": True,
+        "defaultWidth": 42, "maxWidth": 162, "width": 42,
+    },
+    "workData": {"maxWorkSpaceCount": 2, "enableWorkSpaces": [1, 2]},
+    "imageFrames": [],
+    "cliparts": [],
+    "messages": [],
+}
+
+
+def _frame(index: int) -> dict:
+    return {
+        "topleft": [-10.0, -10.0], "size": [784, 1238], "index": index,
+        "imagePositionXIndexList": [index], "imagePositionYIndexList": [index],
+        "workSpaceNumber": index,
+    }
+
+
+def _master_template() -> dict:
+    paper = deepcopy(PAPER)
+    paper["imageFrames"] = [{
+        "topleft": [-10, -10], "size": [784, 1238],
+        "defaultTopleft": [-10, -10], "defaultSize": [784, 1238],
+        "imagePositionXIndexList": [], "imagePositionYIndexList": [],
+        "angle": 0.0, "fitting": "fit", "index": 1, "workSpaceNumber": 1,
+    }]
+    return {
+        "id": "IC_002", "version": 3, "thumbnail": "IC_002.png",
+        "update": True, "function": "IC", "borderType": 0,
+        "paperSizeList": [paper],
+    }
+
+
+def _token(length: int = 10) -> str:
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
 class ETDXGenerator:
-    """Generate Epson Photo+ .etdx template files from images."""
-    
-    # Target card dimensions at 300 DPI (86mm x 54mm)
-    TARGET_WIDTH = 1016
-    TARGET_HEIGHT = 638
-    
-    # Photo positioning (from template analysis)
-    PHOTO_CENTER = [0.4488523602485657, 0.7050654292106628]
-    PHOTO_CROP_RECT = [0, 0, TARGET_WIDTH, TARGET_HEIGHT]
-    
-    def __init__(self, base_template_dir: str):
-        """
-        Initialize ETDX generator with base template.
-        
-        Args:
-            base_template_dir: Path to extracted base template directory
-        """
-        self.base_template_dir = Path(base_template_dir)
-        self.load_base_template()
-    
-    def load_base_template(self):
-        """Load base template JSON files."""
-        # Load projectinfo.json
-        with open(self.base_template_dir / "projectinfo.json", 'r') as f:
-            self.project_info = json.load(f)
-        
-        # Load an existing page template as base (not BaseData)
-        # Find first page UUID directory
-        page_dirs = [d for d in self.base_template_dir.iterdir() 
-                    if d.is_dir() and d.name != "BaseData"]
-        
-        if not page_dirs:
-            raise ValueError("No page template found in base template directory")
-        
-        # Load first page's _info.json as template
-        with open(page_dirs[0] / "_info.json", 'r') as f:
-            self.page_template = json.load(f)
-    
-    def calculate_scale(self, original_width: int, original_height: int) -> float:
-        """
-        Calculate scale factor to fit image into target dimensions.
-        
-        Args:
-            original_width: Original image width in pixels
-            original_height: Original image height in pixels
-            
-        Returns:
-            Scale factor
-        """
-        # Empirical correction:
-        # Target 86mm / Observed 71.7mm (at ~0.83 scale) ~= 1.2
-        # Target 86mm / Observed 45.8mm (at ~0.64 scale) ~= 1.88 -> 0.64 * 1.88 ~= 1.2
-        # Likely due to Epson using 360 DPI vs our 300 DPI (360/300 = 1.2)
-        return 1.2
-    
-    def create_photo_object(self, image_path: str, workspace_number: int, 
-                           original_size: Tuple[int, int]) -> dict:
-        """
-        Create photo object for JSON metadata.
-        
-        Args:
-            image_path: Relative path to image in template
-            workspace_number: 1 or 2 (top or bottom card)
-            original_size: (width, height) of original image
-            
-        Returns:
-            Photo object dictionary
-        """
-        width, height = original_size
-        scale = self.calculate_scale(width, height)
-        
+    """Build Photo+ 4.x packages matching templates created on Windows."""
+
+    def __init__(self, base_template_dir: str | None = None):
+        # Kept for compatibility with existing callers. Photo+ 4.x metadata is
+        # generated here so stale template files cannot reintroduce old layouts.
+        self.base_template_dir = Path(base_template_dir) if base_template_dir else None
+
+    @staticmethod
+    def _photo(image_path: str, filename: str, frame_index: int) -> dict:
+        with Image.open(image_path) as image:
+            width, height = image.size
+        landscape = width >= height
+        angle = 90.0 if landscape else 0.0
+        placed_width, placed_height = (height, width) if landscape else (width, height)
+        scale = max(784 / placed_width, 1238 / placed_height)
         return {
-            "angle": 0,
-            "center": self.PHOTO_CENTER.copy(),
-            "effectInfo": {
-                "blur": 0,
-                "transparency": 0
-            },
-            "originalsize": [float(width), float(height)],
-            "zindex": 0,
-            "frameIndex": -1,
-            "imagePath": image_path,
-            "workSpaceNumber": workspace_number,
-            "apfInfo": {
-                "saturation": 0,
-                "brightness": 0,
-                "level": 5,
-                "contrast": 0,
-                "mode": "standard",
-                "sharpness": 0
-            },
-            "crop": {
-                "type": 1,
-                "rect": self.PHOTO_CROP_RECT.copy()
-            },
-            "scale": scale
+            "imagepath": filename.replace("/", "\\"),
+            "originalsize": [width, height],
+            "center": [0.0, 0.0],
+            "angle": angle,
+            "scale": scale,
+            "crop": {},
+            "effectInfo": {},
+            "apfInfo": {"mode": "standard", "level": 5},
+            "frameIndex": frame_index,
+            "workSpaceNumber": frame_index,
+            "zindex": 100,
         }
-    
-    def create_page_info(self, photos: List[dict]) -> dict:
-        """
-        Create page _info.json with photos.
-        
-        Args:
-            photos: List of photo objects
-            
-        Returns:
-            Page info dictionary
-        """
-        # Clone page template structure
-        page_info = json.loads(json.dumps(self.page_template))
-        
-        # Update with photos
-        page_info["editedPaperSize"]["photos"] = photos
-        
-        return page_info
-    
-    def generate_etdx(self, images: List[str], 
-                     output_path: str, template_name: str = "kay", front_only: bool = False):
-        """
-        Generate .etdx template file.
-        
-        Args:
-            images: List of image paths (4 for front/back, 2 for front only)
-            output_path: Directory to save .etdx file
-            template_name: Base name for template (e.g., "kay1")
-            front_only: If True, generate template with only front side printed
-        """
-        expected_images = 2 if front_only else 4
-        if len(images) != expected_images:
-            raise ValueError(f"Expected {expected_images} images, got {len(images)}")
-        
-        if front_only:
-            front1_path, front2_path = images
-        else:
-            front1_path, back1_path, front2_path, back2_path = images
-        
-        # Create temporary directory for template assembly
-        temp_dir = Path(output_path) / f"_temp_{template_name}"
-        temp_dir.mkdir(exist_ok=True)
-        
-        try:
-            # Generate UUIDs
-            front_page_uuid = str(uuid.uuid4()).upper()
-            front1_img_uuid = str(uuid.uuid4()).upper()
-            front2_img_uuid = str(uuid.uuid4()).upper()
-            
-            if not front_only:
-                back_page_uuid = str(uuid.uuid4()).upper()
-                back1_img_uuid = str(uuid.uuid4()).upper()
-                back2_img_uuid = str(uuid.uuid4()).upper()
-            
-            # Copy base files
-            shutil.copy(self.base_template_dir / "projectinfo.json", temp_dir / "projectinfo.json")
-            shutil.copytree(self.base_template_dir / "BaseData", temp_dir / "BaseData")
-            
-            # Create page.json
-            page_json = [front_page_uuid] if front_only else [front_page_uuid, back_page_uuid]
-            with open(temp_dir / "page.json", 'w') as f:
-                json.dump(page_json, f)
-            
-            # Get image sizes
-            with Image.open(front1_path) as img:
-                front1_size = img.size
-            with Image.open(front2_path) as img:
-                front2_size = img.size
-            
-            if not front_only:
-                with Image.open(back1_path) as img:
-                    back1_size = img.size
-                with Image.open(back2_path) as img:
-                    back2_size = img.size
-            
-            # Create Front page
-            front_page_dir = temp_dir / front_page_uuid
-            front_page_dir.mkdir()
-            
-            # Copy front images
-            front1_dir = front_page_dir / front1_img_uuid
-            front1_dir.mkdir()
-            front1_filename = Path(front1_path).name
-            shutil.copy(front1_path, front1_dir / front1_filename)
-            
-            front2_dir = front_page_dir / front2_img_uuid
-            front2_dir.mkdir()
-            front2_filename = Path(front2_path).name
-            shutil.copy(front2_path, front2_dir / front2_filename)
-            
-            # Create front page photos
-            front_photos = [
-                self.create_photo_object(
-                    f"{front1_img_uuid}/{front1_filename}",
-                    1,
-                    front1_size
-                ),
-                self.create_photo_object(
-                    f"{front2_img_uuid}/{front2_filename}",
-                    2,
-                    front2_size
-                )
-            ]
-            
-            # Save front page _info.json
-            front_page_info = self.create_page_info(front_photos)
-            with open(front_page_dir / "_info.json", 'w') as f:
-                json.dump(front_page_info, f)
-            
-            if not front_only:
-                # Create Back page
-                back_page_dir = temp_dir / back_page_uuid
-                back_page_dir.mkdir()
-                
-                # Copy back images
-                back1_dir = back_page_dir / back1_img_uuid
-                back1_dir.mkdir()
-                back1_filename = Path(back1_path).name
-                shutil.copy(back1_path, back1_dir / back1_filename)
-                
-                back2_dir = back_page_dir / back2_img_uuid
-                back2_dir.mkdir()
-                back2_filename = Path(back2_path).name
-                shutil.copy(back2_path, back2_dir / back2_filename)
-                
-                # Create back page photos
-                back_photos = [
-                    self.create_photo_object(
-                        f"{back1_img_uuid}/{back1_filename}",
-                        1,
-                        back1_size
-                    ),
-                    self.create_photo_object(
-                        f"{back2_img_uuid}/{back2_filename}",
-                        2,
-                        back2_size
-                    )
-                ]
-                
-                # Save back page _info.json
-                back_page_info = self.create_page_info(back_photos)
-                with open(back_page_dir / "_info.json", 'w') as f:
-                    json.dump(back_page_info, f)
-            
-            # Create .etdx ZIP file
-            etdx_path = Path(output_path) / f"{template_name}.etdx"
-            with zipfile.ZipFile(etdx_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-                for root, dirs, files in os.walk(temp_dir):
-                    for file in files:
-                        file_path = Path(root) / file
-                        arcname = file_path.relative_to(temp_dir)
-                        zf.write(file_path, arcname)
-            
-            return str(etdx_path)
-        
-        finally:
-            # Clean up temp directory
-            if temp_dir.exists():
-                shutil.rmtree(temp_dir)
-    
-    def batch_generate(self, pdf_images: List[str], output_dir: str, 
-                      base_name: str = "kay", front_only: bool = False) -> List[str]:
-        """
-        Generate multiple .etdx files from PDF images.
-        
-        Args:
-            pdf_images: List of image paths in order [F1, B1, F2, B2, F3, B3, ...] (or [F1, F2...] if front_only)
-            output_dir: Directory to save .etdx files
-            base_name: Base name for templates (e.g., "kay" -> "kay1.etdx", "kay2.etdx")
-            front_only: If True, generate template with only front side printed
-            
-        Returns:
-            List of generated .etdx file paths
-        """
+
+    def _page_info(self, images: List[str], relative_names: List[str]) -> dict:
+        paper = deepcopy(PAPER)
+        paper["imageFrames"] = [_frame(1), _frame(2)]
+        paper["photos"] = [
+            self._photo(images[0], relative_names[0], 1),
+            self._photo(images[1], relative_names[1], 2),
+        ]
+        stored_paper = deepcopy(PAPER)
+        stored_paper["imageFrames"] = [_frame(1), _frame(2)]
+        for frame in stored_paper["imageFrames"]:
+            frame["imagePositionXIndexList"] = []
+            frame["imagePositionYIndexList"] = []
+        return {
+            "version": 3, "id": "IC_002", "thumbnail": "IC_002.png",
+            "update": True, "function": "IC", "editedPaperSize": paper,
+            "paperSizeList": [stored_paper],
+        }
+
+    def generate_etdx(self, images: List[str], output_path: str,
+                      template_name: str = "template", front_only: bool = False) -> str:
+        expected = 2 if front_only else 4
+        if len(images) != expected:
+            raise ValueError(f"Expected {expected} images, got {len(images)}")
+        output_dir = Path(output_path)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        page_groups = [images] if front_only else [images[0::2], images[1::2]]
+        with tempfile.TemporaryDirectory(prefix="epson-etdx-", dir=output_dir) as temporary:
+            root = Path(temporary)
+            (root / "MasterTemplate").mkdir()
+            (root / "projectInfo.json").write_text(json.dumps(PROJECT_INFO), encoding="utf-8")
+            (root / "MasterTemplate" / "_info.json").write_text(
+                json.dumps(_master_template()), encoding="utf-8"
+            )
+            page_ids: list[str] = []
+            for group in page_groups:
+                page_id = _token()
+                page_ids.append(page_id)
+                page_dir = root / page_id
+                page_dir.mkdir()
+                relative_names: list[str] = []
+                for source in group:
+                    image_id = _token()
+                    image_dir = page_dir / image_id
+                    image_dir.mkdir()
+                    safe_name = Path(source).name
+                    shutil.copy2(source, image_dir / safe_name)
+                    relative_names.append(f"{image_id}\\{safe_name}")
+                info = self._page_info(group, relative_names)
+                (page_dir / "_info.json").write_text(json.dumps(info), encoding="utf-8")
+            (root / "page.json").write_text(json.dumps(page_ids), encoding="utf-8")
+
+            target = output_dir / f"{template_name}.etdx"
+            with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
+                for current_root, _directories, files in os.walk(root):
+                    for filename in files:
+                        path = Path(current_root) / filename
+                        archive.write(path, path.relative_to(root))
+            return str(target)
+
+    def batch_generate(self, pdf_images: List[str], output_dir: str,
+                       base_name: str = "template", front_only: bool = False) -> List[str]:
         group_size = 2 if front_only else 4
-        if len(pdf_images) % group_size != 0:
+        if len(pdf_images) % group_size:
             raise ValueError(f"Expected multiple of {group_size} images, got {len(pdf_images)}")
-        
-        generated_files = []
-        
-        # Process in groups
-        for i in range(0, len(pdf_images), group_size):
-            template_num = (i // group_size) + 1
-            template_name = f"{base_name}{template_num}"
-            
-            image_group = pdf_images[i:i+group_size]
-            etdx_path = self.generate_etdx(image_group, output_dir, template_name, front_only=front_only)
-            generated_files.append(etdx_path)
-        
-        return generated_files
-if __name__ == "__main__":
-    # Test the generator
-    print("ETDX Generator module loaded successfully")
+        return [
+            self.generate_etdx(
+                pdf_images[index:index + group_size], output_dir,
+                f"{base_name}{index // group_size + 1}", front_only,
+            )
+            for index in range(0, len(pdf_images), group_size)
+        ]
